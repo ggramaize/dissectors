@@ -1,28 +1,4 @@
---[[
-
-MIT License
-
-Copyright (c) 2021 Geoffroy GRAMAIZE (F4HOF)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-]]--
+-- ardop.lua
 
 -- ARDOP Dissectors
 p_ardop = Proto ( "ARDOP", "ARDOP Interface")
@@ -38,6 +14,14 @@ local function fif(condition, if_true, if_false)
 	if condition then return if_true else return if_false end
 end
 
+-- Check if a value exists in a table
+local function val_exists( haystack, needle)
+    for key, val in pairs(haystack) do
+        if ( val == needle ) then return true end
+    end
+    return false
+end
+
 -------------------------------------------------------------------------------
 -- Global settings
 -------------------------------------------------------------------------------
@@ -45,6 +29,7 @@ local ardop_settings =
 {
     enabled      = true, -- whether this dissector is enabled or not
     port         = 8515, -- default TCP port number
+    decode_b2f   = true, -- should this dissector interpret the payload as B2F
 }
 
 -------------------------------------------------------------------------------
@@ -84,7 +69,7 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	
 	-- Call the original dissector & check the direction
 	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
-	local is_dce_to_dte = ( f_tcp_srcport() and f_tcp_srcport().value == ardop_settings.port+1 )
+	local is_dce_to_dte = ( pinfo.src_port == ardop_settings.port+1 )
 
 	-- Variables
 	local pk_len = buffer(0,2):uint()
@@ -108,6 +93,11 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	end
 
 	subtree:add( pk_data, "ARDOP Payload (" .. pk_data:len() .. " byte(s))")
+
+	-- Attempt to invoke the B2F dissector for received connected mode data, or transmitted data, if it exists
+	if( ardop_settings.decode_b2f and val_exists( Dissector.list(), "b2f" ) and ( not is_dce_to_dte or pk_type == "ARQ" ) ) then
+		Dissector.get("b2f"):call( pk_data, pinfo, tree)
+	end
 end
 
 
@@ -119,6 +109,9 @@ p_ardop.prefs.enabled = Pref.bool("Dissector enabled", ardop_settings.enabled,
 
 p_ardop.prefs.portnum = Pref.uint("Port Number", ardop_settings.port,
                                         "The port on which the ARDOP modem is listening")
+
+p_ardop.prefs.decode_b2f = Pref.bool("Decode payload as B2F", ardop_settings.decode_b2f,
+                                        "Whether the ARDOP data plane should interpret its payload as B2F")
 -- Register the dissectors
 local function regDissectors()
 	DissectorTable.get("tcp.port"):add( ardop_settings.port, p_ardop_c)
@@ -137,8 +130,12 @@ end
 function p_ardop.prefs_changed()
 	local must_change_port = ardop_settings.port ~= p_ardop.prefs.portnum
 	local must_change_state = ardop_settings.enabled ~= p_ardop.prefs.enabled
-	local must_reload = must_change_port or must_change_state
+	local must_change_decb2f = ardop_settings.decode_b2f ~= p_ardop.prefs.decode_b2f
+	local must_reload = must_change_port or must_change_state or must_change_decb2f
 	
+	-- B2F decoding change
+	ardop_settings.decode_b2f = p_ardop.prefs.decode_b2f
+
 	-- Port change
 	if ( must_change_port ) then
 		-- Disable dissectors if they were previously enabled
