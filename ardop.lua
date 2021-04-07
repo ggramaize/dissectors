@@ -96,7 +96,7 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 
 	-- Attempt to invoke the B2F dissector for received connected mode data, or transmitted data, if it exists
 	if( ardop_settings.decode_b2f and val_exists( Dissector.list(), "b2f" ) and ( not is_dce_to_dte or pk_type == "ARQ" ) ) then
-		Dissector.get("b2f"):call( pk_data, pinfo, tree)
+		Dissector.get("b2f"):call( pk_data:tvb(), pinfo, tree)
 	end
 end
 
