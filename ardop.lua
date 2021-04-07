@@ -60,7 +60,10 @@ end
 -------------------------------------------------------------------------------
 -- Safely returns the data plane received packet type
 local function dp_get_pk_type( buffer, is_dce_to_dte)
-	return fif( is_dce_to_dte, buffer(2,3):string(), nil)
+	if ( is_dce_to_dte == true and buffer:len() >= 5) then
+		return buffer(2,3):string()
+	end
+	return nil
 end
 
 local function dp_print_rx_type ( p_type)
