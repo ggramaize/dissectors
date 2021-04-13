@@ -28,7 +28,10 @@ local function val_exists( haystack, needle)
     end
     return false
 end
-
+-------------------------------------------------------------------------------
+-- Fields
+-------------------------------------------------------------------------------
+local pf_b2f_stream = ProtoField.string( "b2f.stream", "B2F stream index")
 -------------------------------------------------------------------------------
 -- Global settings
 -------------------------------------------------------------------------------
@@ -43,8 +46,71 @@ local ardop_settings =
 -- Control Plane dissector
 -------------------------------------------------------------------------------
 function p_ardop_c.dissector ( buffer, pinfo, tree)
+	local pkt_len = buffer:len()
 	-- Validate packet length
-	if ( buffer:len() < 2 ) then return end
+	if ( pkt_len < 1 ) then return end
+
+	-- Set protocol name
+	pinfo.cols.protocol = "ARDOP_C"
+
+	-- Call the original dissector & check the direction
+	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
+	local is_dce_to_dte = ( pinfo.src_port == ardop_settings.port )
+
+	-- Update packet direction
+	pinfo.cols.direction = fif( is_dce_to_dte, P2P_DIR_RECV, P2P_DIR_SENT)
+
+	local subtree = tree:add( p_ardop_c, buffer())
+	subtree:add( p_ardop_c, buffer(0,0), "[Direction: " .. fif( is_dce_to_dte, "DCE to DTE", "DTE to DCE")  .. "]")
+
+	local data = buffer( 0, pkt_len-1)
+	
+	if ( is_dce_to_dte == true and pkt_len > 8 and buffer(0,4):string() == "PTT " ) then
+		-- PTT event
+		local ptt_status = "Status: Transceiver now " .. fif( buffer(4,4):string() == "TRUE", "transmitting", "receiving")
+		subtree:add( p_ardop_c, data, ptt_status)
+		pinfo.cols.info = ptt_status
+
+	elseif ( pkt_len > 7 and buffer(0,7):string() == "VERSION" ) then
+		-- Version
+		local ver_status
+		if ( is_dce_to_dte ) then
+			if ( pkt_len > 8 ) then
+				ver_status = "TNC Version: " .. buffer( 8, pkt_len-9):string()
+				subtree:add( p_ardop_c, data, ver_status)
+				pinfo.cols.info = ver_status
+			else
+				subtree:add( p_ardop_c, data, "TNC Version (malformed)")
+				subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "Malformed field")
+			end
+		else
+			ver_status = "TNC Version query"
+			subtree:add( p_ardop_c, data, ver_status)
+			pinfo.cols.info = ver_status
+		end
+
+	elseif ( pkt_len > 11 and buffer(0,7):string() == "LISTEN " ) then
+		local list_status
+		if ( is_dce_to_dte ) then
+			list_status = ( pkt_len > 15 and buffer(11,4):string() == "true" )
+			list_status = "Status: " .. fif( list_status, "Listening", "Not listening") .. " to incoming connections"
+		else
+			list_status = ( pkt_len > 10 and buffer(7,4):string() == "true" )
+			list_status = "Query: " .. fif( list_status, "Listen", "Don't listen") .. " incoming connections"
+		end
+		subtree:add( p_ardop_c, data, list_status)
+		pinfo.cols.info = list_status
+		
+	elseif ( pkt_len > 8 and buffer(0,7):string() == "BUFFER " ) then
+		local buf_status
+		local rx_buf_bytes = tonumber(buffer(7,pkt_len-8):string())
+		if ( is_dce_to_dte ) then
+			buf_status = "Status: " .. rx_buf_bytes .. " byte(s) currently in TNC's Rx buffer"
+			subtree:add( p_ardop_c, data, buf_status)
+			pinfo.cols.info = buf_status
+		end	
+		
+	end
 end
 
 -------------------------------------------------------------------------------
