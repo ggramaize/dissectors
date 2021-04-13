@@ -162,7 +162,7 @@ function p_ardop_c.dissector ( buffer, pinfo, tree)
 		subtree:add( p_ardop_c, data, csgn_status)
 		pinfo.cols.info = csgn_status
 
-	-- INPUTPEAKS X Y_
+	-- INPUTPEAKS
 	elseif ( pkt_len > 14 and buffer(0,11):string() == "INPUTPEAKS " ) then
 		if ( is_dce_to_dte ) then
 			local peaks_status, separator=11
@@ -175,7 +175,7 @@ function p_ardop_c.dissector ( buffer, pinfo, tree)
 
 			if ( separator ~= 11 and separator ~= pkt_len-1 ) then
 				local lower_peak = buffer( 11, separator-11)
-				local upper_peak = buffer( separator+1, pkt_len-separator-1)
+				local upper_peak = buffer( separator+1, pkt_len-separator-2)
 				peaks_status = "Diag: Modem samples between " .. lower_peak:string() .. " and " .. upper_peak:string()
 				local pk_subtr = subtree:add( p_ardop_c, data, "Modem peaks")
 				pk_subtr:add( p_ardop_c, lower_peak, "Lower peak: " .. lower_peak:string())
