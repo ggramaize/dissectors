@@ -105,7 +105,7 @@ function p_ardop_c.dissector ( buffer, pinfo, tree)
 		local buf_status
 		local rx_buf_bytes = tonumber(buffer(7,pkt_len-8):string())
 		if ( is_dce_to_dte ) then
-			buf_status = "Status: " .. rx_buf_bytes .. " byte(s) currently in TNC's Rx buffer"
+			buf_status = "Status: " .. rx_buf_bytes .. " byte(s) currently in TNC's Tx buffer"
 			subtree:add( p_ardop_c, data, buf_status)
 			pinfo.cols.info = buf_status
 		end	
