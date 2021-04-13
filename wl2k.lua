@@ -6,6 +6,9 @@ p_wl2k = Proto ( "WL2K", "Winlink over TCP")
 local f_tcp_stream   = Field.new("tcp.stream")
 local original_dissector
 
+-- B2F Stream index
+local pf_b2f_stream = ProtoField.string( "b2f.stream", "B2F stream index")
+
 -- Direction info (shim for versions < 3.4.4)
 if( P2P_DIR_RECV == nil ) then
 	P2P_DIR_UNKNOWN = -1
