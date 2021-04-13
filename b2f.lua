@@ -227,7 +227,13 @@ function p_b2f.dissector( buffer, pinfo, tree)
 		len_line = find_next_cr( buffer( cur_line))+1
 		
 		-- Skip new lines
-		if( buffer():len() >= 1 and buffer( cur_line, 1):uint() == 0x0a or buffer( cur_line, 1):uint() == 0x0d ) then goto next_line end
+		if( buffer(cur_line):len() >= 1 and buffer( cur_line, 1):uint() == 0x0a or buffer( cur_line, 1):uint() == 0x0d ) then
+			if ( cur_line+len_line >= pk_size ) then
+				break
+			else
+				goto next_line
+			end
+		end
 		
 		-- Process the line
 		local cmdtree = subtree:add( buffer( cur_line, len_line-1), "B2F Command: " .. buffer( cur_line, len_line-1 ):string() )
