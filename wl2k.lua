@@ -6,6 +6,13 @@ p_wl2k = Proto ( "WL2K", "Winlink over TCP")
 local f_tcp_stream   = Field.new("tcp.stream")
 local original_dissector
 
+-- Direction info (shim for versions < 3.4.4)
+if( P2P_DIR_RECV == nil ) then
+	P2P_DIR_UNKNOWN = -1
+	P2P_DIR_SENT    =  0
+	P2P_DIR_RECV    =  1
+end
+
 -- Stream info
 local wl2k_stream_infos = {}
 
@@ -46,6 +53,9 @@ function p_wl2k.dissector ( buffer, pinfo, tree)
 
 	local stream_id = f_tcp_stream().value
 
+	-- Update packet direction
+	pinfo.cols.direction = fif( is_s2c, P2P_DIR_RECV, P2P_DIR_SENT)
+
 	-- Update the info column
 	pinfo.cols.info = "Winlink over TCP"
 
@@ -56,6 +66,8 @@ function p_wl2k.dissector ( buffer, pinfo, tree)
 	end
 	
 	local subtree = tree:add( p_wl2k, buffer(), "Winlink over TCP")
+	local direct_str = "[Direction: " .. fif( is_s2c, "Incoming", "Outgoing") .. "]"
+	subtree:add( p_wl2k, buffer(0,0), direct_str)
 	
 	if( wl2k_stream_infos[ stream_id ]["next_proto"] == false ) then
 		-- We've not yet reached the B2 exchange

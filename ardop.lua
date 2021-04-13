@@ -9,6 +9,13 @@ p_ardop_d = Proto ( "ARDOP_D", "ARDOP Data Plane")
 local f_tcp_srcport    = Field.new("tcp.srcport")
 local original_dissector
 
+-- Direction info (shim for versions < 3.4.4)
+if( P2P_DIR_RECV == nil ) then
+	P2P_DIR_UNKNOWN = -1
+	P2P_DIR_SENT    =  0
+	P2P_DIR_RECV    =  1
+end
+
 -- Ternary operator
 local function fif(condition, if_true, if_false)
 	if condition then return if_true else return if_false end
@@ -71,6 +78,9 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
 	local is_dce_to_dte = ( pinfo.src_port == ardop_settings.port+1 )
 
+	-- Update packet direction
+	pinfo.cols.direction = fif( is_dce_to_dte, P2P_DIR_RECV, P2P_DIR_SENT)
+
 	-- Variables
 	local pk_len = buffer(0,2):uint()
 	local pk_type = dp_get_pk_type( buffer, is_dce_to_dte)
@@ -86,6 +96,9 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	-- Subtree
 	local subtree = tree:add( p_ardop_d, buffer(), subtree_title)
 	subtree:add( buffer(0,2) , "Length: " .. pk_len .. " byte(s)")
+
+	local direct_str = "[Direction: " .. fif( is_dce_to_dte, "Incoming", "Outgoing") .. "]"
+	subtree:add( buffer(0,0), direct_str)
 
 	-- Modem to Client packet
 	if ( is_dce_to_dte ) then
