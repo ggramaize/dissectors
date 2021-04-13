@@ -92,10 +92,10 @@ function p_ardop_c.dissector ( buffer, pinfo, tree)
 	elseif ( pkt_len > 11 and buffer(0,7):string() == "LISTEN " ) then
 		local list_status
 		if ( is_dce_to_dte ) then
-			list_status = ( pkt_len > 15 and buffer(11,4):string() == "true" )
+			list_status = ( pkt_len > 15 and buffer(11,4):string():lower() == "true" )
 			list_status = "Status: " .. fif( list_status, "Listening", "Not listening") .. " to incoming connections"
 		else
-			list_status = ( pkt_len > 10 and buffer(7,4):string() == "true" )
+			list_status = ( pkt_len > 10 and buffer(7,4):string():lower() == "true" )
 			list_status = "Query: " .. fif( list_status, "Listen", "Don't listen") .. " incoming connections"
 		end
 		subtree:add( p_ardop_c, data, list_status)
@@ -109,7 +109,118 @@ function p_ardop_c.dissector ( buffer, pinfo, tree)
 			subtree:add( p_ardop_c, data, buf_status)
 			pinfo.cols.info = buf_status
 		end	
+
+	-- STATE
+	elseif ( pkt_len > 5 and buffer(0,5):string() == "STATE" ) then
+		local mdmstate_status
+
+		if ( is_dce_to_dte) then
+			-- STATE *_
+			if( pkt_len > 7 ) then
+				local modem_state = buffer(6,pkt_len-7):string()
+				mdmstate_status = "Status: Modem internal state is " .. modem_state
+				subtree:add( p_ardop_c, data, mdmstate_status)
+				pinfo.cols.info = mdmstate_status
+			else
+				local mdm_tree = subtree:add( p_ardop_c, data, "Modem state")
+				mdm_tree:add_expert_info( PI_PROTOCOL, PI_ERROR, "Malformed field")
+			end
+		else
+			mdmstate_status = "Query: Get modem current internal status"
+			subtree:add( p_ardop_c, data, mdmstate_status)
+			pinfo.cols.info = mdmstate_status
+		end
+
+	-- NEWSTATE
+	elseif ( pkt_len > 10 and buffer(0,9):string() == "NEWSTATE " ) then
+		local mdmstate_status
+		local modem_state = buffer(9,pkt_len-10):string()
+		if ( is_dce_to_dte ) then
+			mdmstate_status = "Status: Modem internal state transitioned to " .. modem_state
+			subtree:add( p_ardop_c, data, mdmstate_status)
+			pinfo.cols.info = mdmstate_status
+		end
+
+	-- MYCALL
+	elseif ( pkt_len > 6 and buffer(0,6):string() == "MYCALL" ) then
+		local csgn_status
+		if ( is_dce_to_dte ) then
+			if( pkt_len > 12 and buffer(7,4):string() == "now ") then
+				csgn_status = "Status: My callsign set to \"" .. buffer( 11, pkt_len-12):string() .. "\""
+			else
+				csgn_status = "Status: My callsign is \"" .. buffer( 7, pkt_len-8):string() .. "\""
+			end
+		else
+			-- MYCALL xxxx
+			if( pkt_len > 8) then
+				csgn_status = "Query: Change my callsign to \"" .. buffer( 7, pkt_len-8):string() .. "\""
+			else
+				csgn_status = "Query: Request my current callsign"
+			end
+		end
+
+		subtree:add( p_ardop_c, data, csgn_status)
+		pinfo.cols.info = csgn_status
+
+	-- INPUTPEAKS X Y_
+	elseif ( pkt_len > 14 and buffer(0,11):string() == "INPUTPEAKS " ) then
+		if ( is_dce_to_dte ) then
+			local peaks_status, separator=11
+			for i=11, pkt_len-1, 1 do
+				if( buffer(i,1):string() == " " ) then
+					separator = i
+					break
+				end
+			end
+
+			if ( separator ~= 11 and separator ~= pkt_len-1 ) then
+				local lower_peak = buffer( 11, separator-11)
+				local upper_peak = buffer( separator+1, pkt_len-separator-1)
+				peaks_status = "Diag: Modem samples between " .. lower_peak:string() .. " and " .. upper_peak:string()
+				local pk_subtr = subtree:add( p_ardop_c, data, "Modem peaks")
+				pk_subtr:add( p_ardop_c, lower_peak, "Lower peak: " .. lower_peak:string())
+				pk_subtr:add( p_ardop_c, upper_peak, "Upper peak: " .. upper_peak:string())
+				pinfo.cols.info = peaks_status
+			else
+				local in_subtr = subtree:add( p_ardop_c, data, "Modem peaks (malformed)")
+				in_subtr:add_expert_info( PI_PROTOCOL, PI_ERROR, "Malformed field")
+			end
+		end
+
+	-- DISCONNECT
+	elseif ( pkt_len > 10 and buffer(0,10):string() == "DISCONNECT" ) then
+		local disc_status
+		if ( is_dce_to_dte ) then
+			if( pkt_len > 12 and buffer(0,12):string() == "DISCONNECTED" ) then
+				disc_status = "Status: Current connection terminated"
+			else
+				disc_status = "Status: Acknowledged connection termination query"
+			end
+		else
+			disc_status = "Query: Terminate current connection"
+		end
 		
+		subtree:add( p_ardop_c, data, disc_status)
+		pinfo.cols.info = disc_status
+
+	-- BUSY
+	elseif ( pkt_len > 9 and buffer(0,5):string() == "BUSY " ) then
+		local chan_status
+		if ( is_dce_to_dte ) then
+			chan_status = "Status: RF Channel is currently " .. fif( buffer(5,pkt_len-6):string():upper() == "TRUE", "busy", "available")
+			subtree:add( p_ardop_c, data, chan_status)
+			pinfo.cols.info = chan_status
+		end
+
+	-- STATUS
+	elseif ( pkt_len > 8 and buffer(0,7):string() == "STATUS " ) then
+		if ( is_dce_to_dte ) then
+			local ftxt_status = "Full text status"
+			local arg = buffer( 7, pkt_len-8)
+			local ftxt_subtree = subtree:add( p_ardop_c, data, ftxt_status)
+			ftxt_subtree:add( p_ardop_c, arg, "Status: " .. arg:string())
+			pinfo.cols.info = ftxt_status .. ": " .. arg:string()
+		end
 	end
 end
 
