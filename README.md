@@ -6,6 +6,7 @@ A personal collection of Wireshark dissectors
   - Copy the lua files in your custom dissector path
 
 Custom dissector path on *nix-like systems: `~/.local/lib/wireshark/plugins`
+
 Custom dissector path on Windows: `%APPDATA%\Wireshark\plugins`
 
 ## About the dissectors
