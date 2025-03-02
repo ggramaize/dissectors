@@ -59,6 +59,16 @@ p_kiss.fields = {
 	pf_command_num
 }
 
+local KISS_FEND  = 0xC0 -- Frame End
+local KISS_FESC  = 0xDB -- Frame Escape
+local KISS_TFEND = 0xDC -- Transposed Frame End
+local KISS_TFESC = 0xDD -- Transposed Frame Escape
+
+-- KISS Translation Table
+local kiss_xlat = {
+	[KISS_TFEND]= KISS_FEND,
+	[KISS_TFESC]= KISS_FESC,
+}
 
 function p_kiss.dissector ( buffer, pinfo, tree)
 	-- Validate packet length
@@ -67,7 +77,6 @@ function p_kiss.dissector ( buffer, pinfo, tree)
 	-- Set protocol name
 	pinfo.cols.protocol = "KISS"
 
-	
 	-- Call the original dissector & check the direction
 	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
 	local is_s2c = ( pinfo.src_port == kiss_settings.port )
@@ -95,7 +104,7 @@ function p_kiss.dissector ( buffer, pinfo, tree)
 	local pk_cmd = bit.band( pk_type, 0x0F)
 	local tail = buffer(buffer:len()-1,1):uint()
 	
-	if( head == 0xC0 and tail == 0xC0 ) then
+	if( head == KISS_FEND and tail == KISS_FEND ) then
 		subtree:add( p_kiss, buffer(0,1), "Packet head")
 		
 		if( pk_type == 0xFF ) then
@@ -117,10 +126,37 @@ function p_kiss.dissector ( buffer, pinfo, tree)
 				pinfo.cols.info = "KISS, set " .. fif( buffer(2,1):uint() == 1, "Full", "Half") .. " Duplex"
 				
 			elseif( pk_cmd == 0x00 ) then
-
-				subtree:add( p_kiss, buffer(2,buffer:len()-3), "KISS Payload " .. buffer:len()-3 .. " byte(s)" )
+				local payload_sz = buffer:len()-3
+				local payload = buffer( 2, payload_sz)
+				local ba_payload = ByteArray.new()
+				
+				local i=0
+				while ( i < payload_sz ) do
+					local cur_byte = payload( i, 1):uint()
+					if ( cur_byte == KISS_FESC ) then
+						if ( i == payload_sz-1 ) then
+							subtree:add_expert_info( PI_MALFORMED, PI_ERROR, "Malformed KISS Frame")
+							return
+						end
+						
+						local next_byte = kiss_xlat[ payload( i+1, 1):uint()]
+						
+						if ( next_byte ~= nil ) then
+							ba_payload:append( ByteArray.new( string.format( "%02X", next_byte)))
+						else
+							subtree:add_expert_info( PI_MALFORMED, PI_ERROR, "Malformed KISS Frame")
+							return
+						end
+						
+					else
+						ba_payload:append( ByteArray.new( string.format( "%02X", cur_byte)))
+					end
+					i = i + 1
+				end
+				local payload_tvb = ba_payload:tvb("KISS Payload")
+				subtree:add( p_kiss, payload_tvb(), "KISS Payload " .. payload_tvb():len() .. " byte(s)" )
 				if( kiss_settings.decode_ax25 and val_exists( Dissector.list(), "ax25" ) ) then
-					Dissector.get("ax25"):call( buffer(2,buffer:len()-3):tvb(), pinfo, tree)
+					Dissector.get("ax25"):call( payload_tvb, pinfo, tree)
 				end
 				
 			elseif( pk_cmd == 0x06 ) then
@@ -196,4 +232,3 @@ function p_kiss.prefs_changed()
 	-- Reload the capture file
 	if (must_reload) then reload() end
 end
-
