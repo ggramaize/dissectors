@@ -43,8 +43,23 @@ User Payload parsing:
 ### AGWPE
 TBD
 
+### AX.25
+TBD
+  - [ ] Duplicate Frame detection
+
+#### UI Frames
+  - [ ] APRS frame decoder
+
+#### Connected mode
+  - [ ] Stream ID generation
+  - [ ] v2.0 session tracking ( including handling rejects)
+  - [ ] v2.2 session tracking ( including handling selective rejects)
+
+### APRS
+TBD
+
 ### Serial Interceptor
-TBD, the rough architecture would consist into a serial tap that links both client and real physical port.
+TBD, the rough architecture would consist into a serial tap that links both a client application and a physical serial port.
 The main challenge lies into handling the special signals (BRK, special lines, etc).
 Downside is you need to explicitly specify the kind of device you're tapping on.
 
@@ -55,6 +70,3 @@ flowchart LR
     B -.->|Named pipe| E[Wireshark]
     C <==>|RS-232| D[Data Modem]
 ```
-
-### AX.25
-TBD
