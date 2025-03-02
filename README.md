@@ -33,7 +33,8 @@ Payload decompression:
   - [ ] GZIP (need to generate some captures)
 
 User Payload parsing:
-  - [ ] BCFv1 Emails (needs some pcap traces)
+  - [ ] ASCII Basic Emails (need some traces)
+  - [ ] BCFv1 Emails (needs some pcap traces for validation)
   - [X] B2F Emails
 
 ### KISS over TCP
