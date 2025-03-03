@@ -695,23 +695,30 @@ local function fbb_fetch_mesg_dissector ( buffer, pinfo, subtree, stream_id, fnu
 		if( cur_char:string() == "+" or ( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "Y" ) ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Accept Message (id: " .. mid .. ")")
 			pending_bytes = pending_bytes + fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["_tsize"]
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = false
 			
 		elseif( cur_char:string() == "-" or ( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "N" ) ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Drop Message (id: " .. mid .. ")")
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = true
 			
 		elseif( cur_char:string() == "=" or ( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "L" ) ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Defer Message (id: " .. mid .. ")")
 			
 		elseif( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "H" ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Hold Message (id: " .. mid .. ")")
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = true
 			
 		elseif( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "R" ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Reject Message (id: " .. mid .. ")")
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = true
 			
 		elseif( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "E" ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Error in proposal")
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = true
 			
 		elseif( protocol_ver >= fbb_next_protocol.BCP_v1 and ( cur_char:string() == "!" or cur_char:uint() == "A" ) ) then
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["skip"] = false
+			fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][i]["partial"] = true
 			local append_sz
 			local offset
 			
@@ -982,8 +989,10 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 		end
 		
 		if ( fbb_pinfo[fnum_id]["mesg_ctr"] == nil ) then
-			fbb_pinfo[fnum_id]["mesg_ctr"] = fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"]
-			fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"] = fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"] + 1
+			repeat
+				fbb_pinfo[fnum_id]["mesg_ctr"] = fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"]
+				fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"] = fbb_tcp_stream_infos[ stream_id ]["mesg_ctr"] + 1
+			until ( fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq-1][fbb_pinfo[fnum_id]["mesg_ctr"]]["skip"] == false )
 		end
 		
 		local mesg_id = fbb_pinfo[fnum_id]["mesg_ctr"]
@@ -991,7 +1000,7 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 		local mid = fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq-1][mesg_id]["mid"]
 		local comp_type = fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq-1][mesg_id]["comp_type"]
 		
-		pinfo.cols.info = "Message transfer, MID: " .. mid .. ", comp alg: " .. comp_type -- TODO: add MID
+		pinfo.cols.info = "Message transfer, MID: " .. mid .. ", comp alg: " .. comp_type
 		local expects_newmsg = true
 		
 		-- Pass the message to YAPP-U dissector
@@ -1004,6 +1013,8 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 			yapp_u:call( buffer(0,message_size):tvb(), pinfo, tree)
 		end
 		
+		-- TODO: Handle trailing skipped messages
+
 		-- Return to Commands mode once our message Tx queue is processed.
 		-- Data transfer ends with immediate modem reversal
 		if ( mesg_id+1 == fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq-1]["count"] ) then
