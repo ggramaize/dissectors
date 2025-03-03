@@ -76,19 +76,19 @@ function p_b2f_mail.dissector ( buffer, pinfo, tree)
 			attr_type = buffer(cur_line, colon_pos):string()
 			attr_value = buffer(cur_line+colon_pos+2, cur_len-colon_pos-2):string()
 			
-			if ( attr_type == "MID" ) then
+			if ( string.upper(attr_type) == "MID" ) then
 				-- Message ID
 				local mid_subtree = headers_subtree:add( p_b2f_mail, buffer( cur_line, cur_len), "Message ID: " .. attr_value)
 				if ( pinfo.private["fbb_mid"] ~= nil and pinfo.private["fbb_mid"] ~= attr_value ) then
 					mid_subtree:add_expert_info( PI_MALFORMED, PI_WARN, "Message ID in message doesn't match with B2F transaction MID (got '" .. pinfo.private["fbb_mid"] .. "')")
 				end
 				
-			elseif ( attr_type == "Body" ) then
+			elseif ( string.upper(attr_type) == "BODY" ) then
 				-- Body length
 				headers_subtree:add( p_b2f_mail, buffer( cur_line, cur_len), "Body length: " .. attr_value .. " byte(s)")
 				body_sz = tonumber( attr_value, 10)
 				
-			elseif ( attr_type == "File" ) then
+			elseif ( string.upper(attr_type) == "FILE" ) then
 				-- Attachment
 				local separator = find_next_val( buffer( cur_line+colon_pos+2, cur_len-colon_pos-2), 0x20)
 				
@@ -102,7 +102,7 @@ function p_b2f_mail.dissector ( buffer, pinfo, tree)
 				headers_subtree:add( p_b2f_mail, buffer( cur_line, cur_len), attr_type .. ": " .. attr_value )
 			end
 			
-			if ( cur_line == 0 and attr_type ~= "MID" ) then
+			if ( cur_line == 0 and string.upper(attr_type) ~= "MID" ) then
 				headers_subtree:add_expert_info( PI_MALFORMED, PI_WARN, "Message ID not set as first attribute, as required by the Open B2F Specification")
 			end
 			
