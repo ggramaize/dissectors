@@ -348,6 +348,37 @@ local function fbb_is_ibsid( buffer)
 	return true
 end
 
+local function fbb_is_incomplete_proposal( buffer, state)
+	local len = buffer():len()
+	local cur_line = 0
+	local next_line = 0
+	local len_line = 0
+	local needs_prompt = false
+	local actual_len_line
+	if ( state == fbb_state.XFER or state == fbb_state.CMDS and buffer( len-1,1):uint() ~= 0x0D ) then return true end
+	
+	-- FIXME: Take account of data transfer
+	if ( state ~= fbb_state.CMDS ) then return false end
+	
+	repeat
+		::incomp_prop_next_line::
+		-- Parse the next line
+		cur_line = cur_line + len_line
+		actual_len_line = find_next_cr( buffer( cur_line))
+		len_line = actual_len_line + 1
+		
+		local proposal_code = buffer(cur_line,3):string()
+		if ( proposal_code == "FA " or proposal_code == "FB " or proposal_code == "FC " or proposal_code == "FD " ) then
+			needs_prompt = true
+		elseif ( proposal_code == "F> " ) then
+			needs_prompt = false
+		end
+		
+		--if ( cur_line+len_line >= len ) then break end
+	until ( cur_line+len_line >= len )
+	return needs_prompt
+end
+
 -------------------------------------------------------------------------------
 -- Global settings
 -------------------------------------------------------------------------------
@@ -806,7 +837,12 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 		local ascii_lines = nil
 		local pending_mesgs = 0
 		
-		-- TODO: detect if reassembly is required (should happen if a Segment doesn't end with a '\r'
+		-- Trigger reassembly if required
+		if ( fbb_is_incomplete_proposal( buffer(), fbb_pinfo[fnum_id]["cur_state"]) == true ) then
+			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
+			pinfo.desegment_offset = 0
+			return
+		end
 		
 		local fbb_subtree = subtree:add( p_fbb_tcp, buffer(), fif( fbb_pinfo[fnum_id]["cur_state"] ~= fbb_state.XFER, "FBB Commands", "ASCII Data" ))
 		
