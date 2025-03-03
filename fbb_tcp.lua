@@ -355,6 +355,7 @@ local fbb_tcp_settings =
 {
 	enabled      = true, -- whether this dissector is enabled or not
 	port         = 8772, -- default TCP port number
+	p2p_port     = 8774, -- default P2P TCP port number
 	decode       = true, -- should this dissector interpret the payload as FBB over TCP
 }
 
@@ -723,7 +724,7 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 	
 	-- Call the original dissector & check the direction
 	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
-	local is_s2c = ( pinfo.src_port == fbb_tcp_settings.port )
+	local is_s2c = ( pinfo.src_port == fbb_tcp_settings.port or pinfo.src_port == fbb_tcp_settings.p2p_port )
 	
 	local stream_id = "tcp_" .. f_tcp_stream().value
 	local fnum_id = f_fnum().value
@@ -981,12 +982,16 @@ p_fbb_tcp.prefs.enabled = Pref.bool("Dissector enabled", fbb_tcp_settings.enable
 p_fbb_tcp.prefs.portnum = Pref.uint("Port Number", fbb_tcp_settings.port,
                                         "The default Winlink over TCP port")
 
+p_fbb_tcp.prefs.p2p_portnum = Pref.uint("Port Number", fbb_tcp_settings.p2p_port,
+                                        "The default peer-to-peer Winlink over TCP port")
+
 p_fbb_tcp.prefs.decode = Pref.bool("Decode payload", fbb_tcp_settings.decode,
                                         "Whether the dissector should interpret and unpack its payload")
 										
 -- Register the dissector
 local function regDissectors()
 	DissectorTable.get("tcp.port"):add( fbb_tcp_settings.port, p_fbb_tcp)
+	DissectorTable.get("tcp.port"):add( fbb_tcp_settings.p2p_port, p_fbb_tcp)
 	fbb_tcp_stream_infos = {}
 	fbb_pinfo = {}
 end
@@ -996,13 +1001,14 @@ regDissectors()
 -- Unregister the dissectors
 local function unregDissectors()
 	DissectorTable.get("tcp.port"):remove( fbb_tcp_settings.port, p_fbb_tcp)
+	DissectorTable.get("tcp.port"):remove( fbb_tcp_settings.p2p_port, p_fbb_tcp)
 	fbb_tcp_stream_infos = {}
 	fbb_pinfo = {}
 end
 
 -- Track the settings change
 function p_fbb_tcp.prefs_changed()
-	local must_change_port  = fbb_tcp_settings.port    ~= p_fbb_tcp.prefs.portnum
+	local must_change_port  = ( fbb_tcp_settings.port  ~= p_fbb_tcp.prefs.portnum or fbb_tcp_settings.p2p_port  ~= p_fbb_tcp.prefs.p2p_portnum )
 	local must_change_state = fbb_tcp_settings.enabled ~= p_fbb_tcp.prefs.enabled
 	local must_change_dec   = fbb_tcp_settings.decode  ~= p_fbb_tcp.prefs.decode
 	local must_reload = must_change_port or must_change_state or must_change_dec
@@ -1016,8 +1022,9 @@ function p_fbb_tcp.prefs_changed()
 		if( fbb_tcp_settings.enabled ) then unregDissectors() end
 
 		-- Update preferences
-		fbb_tcp_settings.port = p_fbb_tcp.prefs.portnum
-		fbb_tcp_settings.enabled = p_fbb_tcp.prefs.enabled
+		fbb_tcp_settings.port     = p_fbb_tcp.prefs.portnum
+		fbb_tcp_settings.p2p_port = p_fbb_tcp.prefs.p2p_portnum
+		fbb_tcp_settings.enabled  = p_fbb_tcp.prefs.enabled
 
 		-- Enable back the dissectors if they are enabled
 		if( fbb_tcp_settings.enabled ) then regDissectors() end
