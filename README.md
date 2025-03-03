@@ -1,6 +1,9 @@
 # Wireshark dissectors
 A personal collection of Wireshark dissectors
 
+## Prerequisites
+The Unicast YAPP dissector requires the `zlib` module to decompress gzip payloads
+
 ## How to use
   - Clone this repository
   - Copy the lua files in your custom dissector path
@@ -28,9 +31,9 @@ Protocol support:
   - [X] B2F (Missing `;SQ:` and `;SR:` parsing)
 
 Payload decompression:
-  - [X] LZHUF
+  - [ ] LZHUF (BCF v0)
   - [X] LZHUF (BCF v1 and B2F)
-  - [ ] GZIP (need to generate some captures)
+  - [X] GZIP (need to generate some captures)
 
 User Payload parsing:
   - [ ] ASCII Basic Emails (need some traces)
