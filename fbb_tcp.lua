@@ -604,7 +604,7 @@ local function fbb_proposal_dissector ( buffer, pinfo, subtree, stream_id, fnum_
 		local gzip_prop = subtree:add( p_fbb_tcp, buffer(), "GZIPed Pending Message Proposal")
 		
 		-- Is the required feature flag available?
-		if( fbb_tcp_stream_infos[ stream_id ]["next_protocol"] < fbb_next_protocol.B2F ) then
+		if( fbb_tcp_stream_infos[ stream_id ]["next_proto"] < fbb_next_protocol.B2F ) then
 			gzip_prop:add_expert_info( PI_PROTOCOL, PI_ERROR, "GZIP Proposal requires at least B2 Forwarding")
 			return false
 		end
@@ -656,6 +656,10 @@ local function fbb_fetch_mesg_dissector ( buffer, pinfo, subtree, stream_id, fnu
 	for i=0, len-1, 1 do
 		cur_char = commands( i, 1)
 		local action_prop
+		if ( cur_message >= pending_messages ) then
+			fetch_subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "More message commands than pending message (expected: " .. pending_messages .. ")")
+			break
+		end
 		local mid = fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq][cur_message]["mid"]
 		if( cur_char:string() == "+" or ( protocol_ver >= fbb_next_protocol.BCP_v1 and cur_char:string() == "Y" ) ) then
 			action_prop = fetch_subtree:add( p_fbb_tcp, cur_char(), "Accept Message (id: " .. mid .. ")")
