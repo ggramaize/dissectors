@@ -1,4 +1,5 @@
 -- yapp_u.lua - Unidirectional YAPP Transfer
+local zlib = require("zlib")
 
 -- Some module-specific constants
 local proto_shortname = "yapp_u"
@@ -56,6 +57,8 @@ end
 
 function p_yapp_u.dissector ( buffer, pinfo, tree)
 	local len = buffer():len()
+	local payload_format = pinfo.private["lzhuf_next_dissector"]
+	local encoding = pinfo.private["yapp_u_payload_format"]
 	local subtree = tree:add( p_yapp_u, buffer, "")
 	
 	local unpacked_bytes = ByteArray.new()
@@ -79,14 +82,28 @@ function p_yapp_u.dissector ( buffer, pinfo, tree)
 		csum_tree.text = csum_tree.text .. " [valid]"
 	end
 		
-	if ( pinfo.private["yapp_u_payload_format"] ~= nil ) then
-		if ( pinfo.private["yapp_u_payload_format"] == "lzhuf") then
+	if ( encoding ~= nil ) then
+		if ( encoding == "lzhuf" ) then
 			Dissector.get("lzhuf"):call( unpacked_tvb, pinfo, tree)
 			
 		elseif ( encoding == "gzip" ) then
-			unpacked_tvb:buf_encap("gzip")
-			-- TODO: Invoke payload_dissector
+			pinfo.private["gzip"] = true
+			local status, decompressed_data = pcall(function()
+				local stream = zlib.inflate()
+				return stream(unpacked_tvb:raw())
+			end)
 			
+			if ( status ) then
+				local decompressed_tvb = ByteArray.new(decompressed_data, true):tvb("Decompressed Payload")
+				subtree:add( p_yapp_u, decompressed_tvb(), "GZIP Decompressed Data")
+				
+				-- Call next dissector, if applicable
+				if ( payload_format ~= nil ) then
+					Dissector.get(payload_format):call( decompressed_tvb, pinfo, tree)
+				end
+			else
+				subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Failed to decompress Gzip data")
+			end
 		end
 	end
 end
