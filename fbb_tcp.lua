@@ -398,7 +398,8 @@ local function fbb_base_dissector ( buffer, pinfo, subtree, fbb_seq, fnum_id, is
 	local len = buffer:len()
 	
 	-- TODO: ;SQ:
-	local title = fif( fbb_seq < 4, fif( is_s2c, "Challenge: \"", "Response: \""), "Comment: \"") .. buffer(0,len):string() .. "\""
+	local skip_preauth = (pinfo.private["fbb_no_preauth"] ~= nil and pinfo.private["fbb_no_preauth"] == "yes" )
+	local title = fif( fbb_seq < 4 and not skip_preauth, fif( is_s2c, "Challenge: \"", "Response: \""), "Comment: \"") .. buffer(0,len):string() .. "\""
 	--pinfo.cols.info = title
 	set_or_concat_info ( pinfo, fnum_id, PI_COMMENT, title, "" ) -- Log level COMMENT = 2
 	subtree:add( p_fbb_tcp, buffer(0,len), title)
@@ -764,9 +765,17 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 	-- Set protocol name
 	pinfo.cols.protocol = "FBB"
 	
-	-- Call the original dissector & check the direction
+	-- Call the original dissector
 	pcall( function() original_dissector:call( buffer, pinfo, tree) end )
-	local is_s2c = ( pinfo.src_port == fbb_tcp_settings.port or pinfo.src_port == fbb_tcp_settings.p2p_port )
+	
+	-- Detect direction
+	local is_s2c
+	if ( pinfo.private["fbb_s2c"] ~= nil ) then
+		-- Override the builtin detection if hinted by the lower layer
+		is_s2c = pinfo.private["fbb_s2c"]
+	else
+		is_s2c = ( pinfo.src_port == fbb_tcp_settings.port or pinfo.src_port == fbb_tcp_settings.p2p_port )
+	end
 	
 	local stream_id = "tcp_" .. f_tcp_stream().value
 	local fnum_id = f_fnum().value
