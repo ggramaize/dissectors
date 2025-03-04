@@ -832,17 +832,21 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 	-- Reset next pending message list
 	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq+1] = {}
 	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq+1]["count"] = 0
-	
+
+	-- Store stream last direction
+	if ( fbb_tcp_stream_infos[ stream_id ]["direction"] == nil ) then
+		fbb_tcp_stream_infos[ stream_id ]["direction"] = {}
+	end
+	fbb_tcp_stream_infos[ stream_id ]["direction"][fbb_seq] = is_s2c
+
 	-- Update the subtree with basic metadata
 	local subtree = tree:add( p_fbb_tcp, buffer(), proto_fullname)
-	
+
 	local seq_str = "[FBB Sequence: " .. fbb_seq .. "]"
 	subtree:add( p_fbb_tcp, buffer(0,0), seq_str)
-	
+
 	local direct_str = "[Direction: " .. fif( is_s2c, "Incoming", "Outgoing") .. "]"
 	subtree:add( p_fbb_tcp, buffer(0,0), direct_str)
-
-	-- TODO: When in XFER, detect unexpected direction reversal
 
 	if ( next_proto < fbb_next_protocol.BCP_v0 or fbb_pinfo[fnum_id]["cur_state"] ~= fbb_state.XFER ) then
 		-- Line-aligned protocol, find and split lines prior to interpretation
@@ -939,7 +943,23 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 			else
 				-- ASCII Data Transfer
 				
-				-- TODO: Handle mode change
+				-- Detect modem reversal, this happens in case of a checksum error.
+				if ( fbb_tcp_stream_infos[ stream_id ]["direction"][fbb_seq] == fbb_tcp_stream_infos[ stream_id ]["direction"][fbb_seq-1] ) then
+					fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS
+					current_state = fbb_state.CMDS
+
+					if ( ( len >= 16 and buffer(0,16):string():upper() == "*** BAD CHECKSUM") or ( len >= 19 and buffer(0,19):string():upper() == "*** ERREUR CHECKSUM") ) then
+						pinfo.cols.info = "[Transfer Error Report]"
+						local err_tree = subtree:add( p_fbb_tcp, buffer(), "Transfer Error Report")
+						err_tree:add_expert_info( PI_PROTOCOL, PI_ERROR, "A message/file transfer error has been reported by this party")
+					else
+						pinfo.cols.info = "[Silent Conversation Reversal]"
+						local err_tree = subtree:add( p_fbb_tcp, buffer(), "[Silent Conversation Reversal]")
+						err_tree:add_expert_info( PI_MALFORMED, PI_ERROR, "Unexpected conversation reversal during data transfer")
+					end
+					return
+				end
+
 				if ( ascii_lines == nil ) then
 					ascii_lines = fbb_subtree:add( p_fbb_tcp, nil, "ASCII Basic Payload")
 				end
@@ -961,7 +981,24 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 	else
 		-- Binary transfer
 		local fbb_subtree = subtree:add( p_fbb_tcp, buffer(), "Binary data transfer")
-		
+
+		-- Detect modem reversal, this happens in case of a checksum error.
+		if ( fbb_tcp_stream_infos[ stream_id ]["direction"][fbb_seq] == fbb_tcp_stream_infos[ stream_id ]["direction"][fbb_seq-1] ) then
+			fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS
+			current_state = fbb_state.CMDS
+
+			if ( ( len >= 16 and buffer(0,16):string():upper() == "*** BAD CHECKSUM") or ( len >= 19 and buffer(0,19):string():upper() == "*** ERREUR CHECKSUM") ) then
+				pinfo.cols.info = "[Transfer Error Report]"
+				local err_tree = subtree:add( p_fbb_tcp, buffer(), "Transfer Error Report")
+				err_tree:add_expert_info( PI_PROTOCOL, PI_ERROR, "A message/file transfer error has been reported by this party")
+			else
+				pinfo.cols.info = "[Silent Conversation Reversal]"
+				local err_tree = subtree:add( p_fbb_tcp, buffer(), "[Silent Conversation Reversal]")
+				err_tree:add_expert_info( PI_MALFORMED, PI_ERROR, "Unexpected conversation reversal during data transfer")
+			end
+			return
+		end
+
 		-- Adjust FBB sequence number
 		fbb_tcp_stream_infos[ stream_id ]["seq_next"] = fbb_tcp_stream_infos[ stream_id ]["seq_next"] - 1
 		
