@@ -245,8 +245,9 @@ end
 
 
 function p_ardop_d.dissector ( buffer, pinfo, tree)
+	local len = buffer():len()
 	-- Validate packet length
-	if ( buffer:len() < 2 ) then return end
+	if ( len < 2 ) then return end
 	
 	-- Set protocol name
 	pinfo.cols.protocol = "ARDOP_D"
@@ -265,7 +266,7 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	local pk_data = buffer(data_offset)
 
 	-- Subtree title
-	local subtree_title = "ARDOP Data Plane, " .. fif( is_dce_to_dte, "Modem to Client, " .. dp_print_rx_type( pk_type), "Client to Modem")
+	local subtree_title = "ARDOP Data Plane, " .. fif( is_dce_to_dte, "from TNC, " .. dp_print_rx_type( pk_type), "to TNC")
 
 	-- Update the info column
 	pinfo.cols.info = subtree_title
@@ -285,8 +286,24 @@ function p_ardop_d.dissector ( buffer, pinfo, tree)
 	subtree:add( pk_data, "ARDOP Payload (" .. pk_data:len() .. " byte(s))")
 
 	-- Attempt to invoke the B2F dissector for received connected mode data, or transmitted data, if it exists
-	if( ardop_settings.decode_b2f and val_exists( Dissector.list(), "b2f" ) and ( not is_dce_to_dte or pk_type == "ARQ" ) ) then
-		Dissector.get("b2f"):call( pk_data:tvb(), pinfo, tree)
+	if( ardop_settings.decode_b2f and val_exists( Dissector.list(), "fbb" ) and ( not is_dce_to_dte or pk_type == "ARQ" ) ) then
+		local reassembled_payload = ByteArray.new()
+		local segment_offset = 0
+		local header_offset = fif( is_dce_to_dte == true, 3, 0)
+		local i = 0
+		while ( segment_offset < buffer():len() and i < 10) do
+			segment_len = buffer( segment_offset, 2):uint()
+			reassembled_payload:append( buffer( segment_offset+header_offset+2, segment_len-header_offset):bytes())
+			segment_offset = segment_offset + segment_len + header_offset + 2
+			i = i + 1
+		end
+
+		pinfo.private["fbb_no_preauth"] = "yes"
+		pinfo.private["fbb_s2c"] = is_dce_to_dte
+		local reassembled_tvb = reassembled_payload:tvb("Reassembled ARDOP Data")
+		subtree:add( p_ardop_d, reassembled_tvb, "Reassembled ARDOP Data")
+
+		Dissector.get("fbb"):call( reassembled_tvb, pinfo, tree)
 	end
 end
 
