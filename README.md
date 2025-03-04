@@ -18,12 +18,13 @@ Custom dissector path on Windows: `%APPDATA%\Wireshark\plugins`
 This dissector is currently composed of 4 distinct dissectors ( `fbb_tcp.lua`, `yapp_u.lua`, `lzhuf.lua`, `b2f_email.lua`)
 
 Transport Layer support:
-  - [ ] AX.25 Connected mode (No-L3 PID)
+  - [ ] AX.25 Connected mode (needs stream tagging, proper I-frames reassembly, rejection handling and heuristic dissector support)
+  - [ ] ARDOP
   - [ ] VARA HF
-  - [ ] VARA FM 
+  - [ ] VARA FM
   - [X] TCP/IP
 
-Protocol support:
+Control protocol support:
   - [ ] MBL/RLI (needs documentation)
   - [X] ASCII Forward
   - [X] Basic Compressed forward v0
@@ -31,12 +32,12 @@ Protocol support:
   - [X] B2F (Missing `;SQ:` and `;SR:` parsing)
 
 Payload decompression:
-  - [ ] LZHUF (BCF v0)
+  - [ ] LZHUF (BCF v0, needs traces for validation)
   - [X] LZHUF (BCF v1 and B2F)
   - [X] GZIP (need to generate some captures)
 
 User Payload parsing:
-  - [ ] ASCII Basic Emails (need some traces)
+  - [ ] ASCII Basic Emails (need some traces for validation)
   - [ ] BCFv1 Emails (needs some pcap traces for validation)
   - [X] B2F Emails
 
@@ -48,20 +49,13 @@ User Payload parsing:
 ### AGWPE
 TBD
 
-### AX.25
-TBD
-  - [ ] Duplicate Frame detection
-
 #### UI Frames
-  - [ ] APRS frame decoder
+  - [X] APRS frame decoder (only targets UI frames)
 
 #### Connected mode
   - [ ] Stream ID generation
   - [ ] v2.0 session tracking ( including handling rejects)
   - [ ] v2.2 session tracking ( including handling selective rejects)
-
-### APRS
-TBD
 
 ### Serial Interceptor
 TBD, the rough architecture would consist into a serial tap that links both a client application and a physical serial port.
