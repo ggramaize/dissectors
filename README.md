@@ -19,7 +19,7 @@ This dissector is currently composed of 4 distinct dissectors ( `fbb_tcp.lua`, `
 
 Transport Layer support:
   - [ ] AX.25 Connected mode (needs stream tagging, proper I-frames reassembly, rejection handling and heuristic dissector support)
-  - [ ] ARDOP
+  - [X] ARDOP
   - [ ] VARA HF
   - [ ] VARA FM
   - [X] TCP/IP
@@ -30,6 +30,7 @@ Control protocol support:
   - [X] Basic Compressed forward v0
   - [X] Basic Compressed forward v1 (needs pcap traces for validation)
   - [X] B2F (Missing `;SQ:` and `;SR:` parsing)
+  - [ ] Reverse handshake support
 
 Payload decompression:
   - [ ] LZHUF (BCF v0, needs traces for validation)
