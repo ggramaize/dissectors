@@ -617,7 +617,20 @@ local function fbb_modern_proposal_dissector( frame, subtree, stream_id, fbb_seq
 
 end
 
-local function fbb_proposal_dissector ( buffer, pinfo, subtree, stream_id, fnum_id, is_s2c, fbb_seq_next)
+-- Compute a FBB checksum
+local function fbb_checksum( buffer)
+	local len = buffer():len()
+	local csum = 0
+	local i
+	
+	for i=0, len-1, 1 do
+		csum = csum + buffer(i,1):uint()
+	end
+	
+	return bit.band(-csum, 0xFF)
+end
+
+local function fbb_proposal_dissector ( buffer, pinfo, subtree, stream_id, fnum_id, is_s2c, fbb_seq_next, prop_checksum)
 	local len = buffer():len()
 	
 	if( (len == 2 or len == 5) and buffer(1,1):uint() == 0x3E ) then
@@ -625,9 +638,14 @@ local function fbb_proposal_dissector ( buffer, pinfo, subtree, stream_id, fnum_
 		local eop_prop = subtree:add( p_fbb_tcp, buffer(), "End of Proposals marker")
 		
 		if( len > 2 ) then
-			-- Checksum
+			-- Proposal list checksum
 			local rx_checksum = tonumber( buffer(3,2):string(), 16)
-			eop_prop:add( p_fbb_tcp, buffer(3,2), "Proposals list checksum: " .. rx_checksum)
+			local csum_tree = eop_prop:add( p_fbb_tcp, buffer(3,2), "Proposal list checksum: " .. rx_checksum)
+			if ( rx_checksum == prop_checksum ) then
+				csum_tree.text = csum_tree.text .. " [valid]"
+			else
+				csum_tree:add_expert_info( PI_MALFORMED, PI_ERROR, "Proposal list checksum validation failed (got " .. prop_checksum .. ", expected " .. rx_checksum .. ")")
+			end
 		else
 		end
 
@@ -856,6 +874,7 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 		local pending_xfer = false
 		local ascii_lines = nil
 		local pending_mesgs = 0
+		local first_mesg = nil
 		
 		-- Trigger reassembly if required
 		if ( fbb_is_incomplete_proposal( buffer(), fbb_pinfo[fnum_id]["cur_state"]) == true ) then
@@ -912,12 +931,18 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 					-- Mark the next message for flow reversal
 					if ( pending_xfers ~= 0 ) then pending_xfer = true end
 
-				elseif ( proposal_code == "FA " or proposal_code == "FB " or proposal_code == "FC " or proposal_code == "FD " or proposal_code == "F> ") then
+				elseif ( proposal_code == "FA " or proposal_code == "FB " or proposal_code == "FC " or proposal_code == "FD " or buffer(cur_line,2):string() == "F>") then
 					-- Message Proposal
-					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1 )
+					local prop_checksum = nil
+					if ( proposal_code == "F> " and first_mesg ~= nil ) then
+						prop_checksum = fbb_checksum( buffer(first_mesg, cur_line-first_mesg))
+					end
 					
-					if( buffer(cur_line,2):string() ~= "F>" ) then 
-						pending_mesgs = pending_mesgs+1 
+					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1, prop_checksum)
+					
+					if( buffer(cur_line,2):string() ~= "F>" ) then
+						if ( first_mesg == nil ) then first_mesg = cur_line end
+						pending_mesgs = pending_mesgs+1
 					end
 					
 				elseif ( buffer(cur_line,1):uint() == 0x3B ) then
