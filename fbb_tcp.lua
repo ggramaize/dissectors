@@ -536,27 +536,52 @@ local function fbb_sid_dissector ( buffer, pinfo, subtree, stream_id, fnum_id, i
 	end
 	
 	if ( is_s2c ) then
-		-- The called party is the first to expose its banner, store flags for nego.
-		fbb_tcp_stream_infos[ stream_id ]["server_feats"] = featflags
-		fbb_tcp_stream_infos[ stream_id ]["server_proto"] = nextproto
+		-- The called party exposes its banner, store flags for nego.
+		if ( fbb_tcp_stream_infos[ stream_id ]["client_feats"] ~= nil ) then
+			-- Perform state transition
+			sid_elt:add_expert_info( PI_SEQUENCE, PI_WARN, "FBB SID exchange completed, reverse direction")
+			fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS  -- For the whole stream
+			fbb_pinfo[fnum_id]["cur_state"] = fbb_state.CMDS             -- For following commands in current segment
+
+			-- Session features is the intersection of both server and client flags.
+			fbb_tcp_stream_infos[ stream_id ]["session_feats"] = bit.band( featflags, fbb_tcp_stream_infos[ stream_id ]["client_feats"])
+
+			-- Derive next proto's value
+			nextproto = fif( nextproto > fbb_tcp_stream_infos[ stream_id ]["server_proto"], nextproto, fbb_tcp_stream_infos[ stream_id ]["server_proto"])
+			fbb_tcp_stream_infos[ stream_id ]["next_proto"] = nextproto
+
+			local neg_featlist = sid_elt:add( p_fbb_tcp, software_features, "[Common Session Features]")
+
+			fbb_sid_list_features( neg_featlist, pinfo, software_features, fbb_tcp_stream_infos[ stream_id ]["session_feats"], nextproto)
+		else
+			-- Store flags for later handshake.
+			fbb_tcp_stream_infos[ stream_id ]["server_feats"] = featflags
+			fbb_tcp_stream_infos[ stream_id ]["server_proto"] = nextproto
+		end
 	else
 		-- The calling party exposes its flags.
-		
-		-- Perform state transition
-		sid_elt:add_expert_info( PI_SEQUENCE, PI_NOTE, "FBB SID exchange completed")
-		fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS  -- For the whole stream
-		fbb_pinfo[fnum_id]["cur_state"] = fbb_state.CMDS             -- For following commands in current segment
-		
-		-- Session features is the intersection of both server and client flags.
-		fbb_tcp_stream_infos[ stream_id ]["session_feats"] = bit.band( featflags, fbb_tcp_stream_infos[ stream_id ]["server_feats"])
-		
-		-- Derive next proto's value
-		nextproto = fif( nextproto > fbb_tcp_stream_infos[ stream_id ]["server_proto"], nextproto, fbb_tcp_stream_infos[ stream_id ]["server_proto"])
-		fbb_tcp_stream_infos[ stream_id ]["next_proto"] = nextproto
-		
-		local neg_featlist = sid_elt:add( p_fbb_tcp, software_features, "[Common Session Features]")
+		if ( fbb_tcp_stream_infos[ stream_id ]["server_feats"] ~= nil ) then
+			-- Perform state transition
+			sid_elt:add_expert_info( PI_SEQUENCE, PI_NOTE, "FBB SID exchange completed")
+			fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS  -- For the whole stream
+			fbb_pinfo[fnum_id]["cur_state"] = fbb_state.CMDS             -- For following commands in current segment
 
-		fbb_sid_list_features( neg_featlist, pinfo, software_features, fbb_tcp_stream_infos[ stream_id ]["session_feats"], nextproto)
+			-- Session features is the intersection of both server and client flags.
+			fbb_tcp_stream_infos[ stream_id ]["session_feats"] = bit.band( featflags, fbb_tcp_stream_infos[ stream_id ]["server_feats"])
+
+			-- Derive next proto's value
+			nextproto = fif( nextproto > fbb_tcp_stream_infos[ stream_id ]["server_proto"], nextproto, fbb_tcp_stream_infos[ stream_id ]["server_proto"])
+			fbb_tcp_stream_infos[ stream_id ]["next_proto"] = nextproto
+
+			local neg_featlist = sid_elt:add( p_fbb_tcp, software_features, "[Common Session Features]")
+
+			fbb_sid_list_features( neg_featlist, pinfo, software_features, fbb_tcp_stream_infos[ stream_id ]["session_feats"], nextproto)
+		else
+			-- Store flags for later handshake.
+			fbb_tcp_stream_infos[ stream_id ]["client_feats"] = featflags
+			fbb_tcp_stream_infos[ stream_id ]["server_proto"] = nextproto
+			sid_elt:add_expert_info( PI_SEQUENCE, PI_WARN, "Reversed direction FBB SID exchange")
+		end
 	end
 
 end
@@ -807,7 +832,8 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 	-- Build Stream metadata table if it doesn't exist
 	if ( fbb_tcp_stream_infos[ stream_id ] == nil ) then
 		fbb_tcp_stream_infos[ stream_id ]= {}
-		fbb_tcp_stream_infos[ stream_id ]["server_feats"] = 0
+		fbb_tcp_stream_infos[ stream_id ]["client_feats"] = nil
+		fbb_tcp_stream_infos[ stream_id ]["server_feats"] = nil
 		fbb_tcp_stream_infos[ stream_id ]["session_feats"] = 0
 		fbb_tcp_stream_infos[ stream_id ]["opts_xchg_done"] = false
 		fbb_tcp_stream_infos[ stream_id ]["dndecode"]= {}

@@ -30,7 +30,7 @@ Control protocol support:
   - [X] Basic Compressed forward v0
   - [X] Basic Compressed forward v1 (needs pcap traces for validation)
   - [X] B2F (Missing `;SQ:` and `;SR:` parsing)
-  - [ ] Reverse handshake support
+  - [X] Reverse handshake support
 
 Payload decompression:
   - [ ] LZHUF (BCF v0, needs traces for validation)
