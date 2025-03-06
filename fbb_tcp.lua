@@ -1063,9 +1063,10 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 		if ( message_size == nil ) then
 			-- Error handling
 			fbb_subtree:add_expert_info( PI_MALFORMED, PI_ERROR, "Invalid payload format (expected YAPP-U)")
-			
+			pinfo.cols.info = "[Invalid payload format (expected YAPP-U)]"
 			-- Return to commands for the next message
 			fbb_tcp_stream_infos[ stream_id ]["state"] = fbb_state.CMDS
+			return
 		end
 
 		-- Check if we need reassembly
