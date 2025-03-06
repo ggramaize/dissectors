@@ -967,6 +967,7 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 					end
 
 					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1, prop_checksum)
+					fbb_subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "End of message proposals encountered, but didn't detect any proposal")
 
 				elseif ( proposal_code == "FA" or proposal_code == "FB" or proposal_code == "FC" or proposal_code == "FD" ) then
 					-- Pending Message Proposal
