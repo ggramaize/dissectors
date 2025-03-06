@@ -472,14 +472,18 @@ local function fbb_comment_dissector ( buffer, pinfo, subtree, stream_id, fnum_i
 	if ( len == 13 and buffer(0,5):string() == ";PQ: " ) then
 		main_info = "Winlink auth Nonce: " .. buffer(5,8):string()
 		set_or_concat_info ( pinfo, fnum_id, PI_CHAT, main_info, ", auth Nonce" )
+
 	elseif ( len == 13 and buffer(0,5):string() == ";PR: " ) then
 		main_info = "Winlink auth reply: " .. buffer(5,8):string()
 		set_or_concat_info ( pinfo, fnum_id, PI_CHAT, main_info, ", auth reply" )
+
 	elseif ( len > 5 and buffer(0,5):string() == ";FW: " ) then
 		main_info = "Winlink forward request: " .. buffer(5,len-5):string()
 		set_or_concat_info ( pinfo, fnum_id, PI_CHAT, main_info, ", forward request" )
+
+	-- TODO ;PM:
 	-- TODO ;SR:
-	-- TODO: CSID
+
 	elseif ( fbb_is_ibsid( buffer) == true ) then
 		main_info = "Station Identification"
 		set_or_concat_info ( pinfo, fnum_id, PI_CHAT, main_info, ", station ident" )
@@ -585,6 +589,83 @@ local function fbb_sid_dissector ( buffer, pinfo, subtree, stream_id, fnum_id, i
 	end
 
 end
+
+local function fbb_legacy_proposal_dissector( buffer, subtree, stream_id, fbb_seq_next )
+	local len = buffer():len()
+	local proto_ver = fbb_tcp_stream_infos[ stream_id ]["next_proto"]
+	local prop_type = buffer( 0, 3):string()
+	local prop_subtree
+
+
+	if ( (prop_type == "FB " and proto_ver == fbb_next_protocol.ASCII) or (prop_type == "FA " and proto_ver > fbb_next_protocol.ASCII) ) then
+		-- ASCII Message Transfer
+		prop_subtree = subtree:add( p_fbb_tcp, buffer(0,2), "Pending " .. fif( proto_ver > fbb_next_protocol.ASCII, "Compressed ", "" ) .. "Message Proposal")
+
+	elseif ( prop_type == "FB " and proto_ver > fbb_next_protocol.ASCII ) then
+		-- Binary File Transfer
+		prop_subtree = subtree:add( p_fbb_tcp, buffer(0,2), "Pending Compressed File Proposal")
+		if ( proto_ver == fbb_next_protocol.BCP_v0 ) then
+			prop_subtree:add_expert_info( PI_PROTOCOL, PI_WARN, "Not supported in some implementations for Binary Compressed Forward version 0")
+		end
+
+	else
+		prop_subtree = subtree:add( p_fbb_tcp, buffer(0,2), "Invalid Proposal")
+		prop_subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "Proposal type not recognised for this protocol version")
+		return false
+	end
+
+	local spaces = {}
+	spaces[0] = find_next( buffer(), 0x20, 5)
+	for i=1, 3, 1 do
+		spaces[i] = find_next( buffer(), 0x20, spaces[i-1]+1)
+	end
+
+	local mtype     = buffer(3,1)
+	local from      = buffer(5,spaces[0]-5)
+	local rcpt_bbs  = buffer(spaces[0]+1,spaces[1]-spaces[0]-1)
+	local recipient = buffer(spaces[1]+1,spaces[2]-spaces[1]-1)
+	local bid_mid   = buffer(spaces[2]+1,spaces[3]-spaces[2]-1)
+	local size      = buffer(spaces[3]+1,len-spaces[3]-1)
+
+	local mtype_tree
+
+	if( mtype:string() == "P" or mtype:string() == "B" ) then
+		mtype_tree = prop_subtree:add( p_fbb_tcp, mtype, "Message Type: " .. fif( mtype:string() == "P", "Private", "Bulletin"))
+	else
+		mtype_tree = prop_subtree:add( p_fbb_tcp, mtype, "Message Type: [Invalid]")
+		mtype_tree:add_expert_info( PI_UNDECODED, PI_ERROR, "Unsupported message type")
+		return false
+	end
+
+	prop_subtree:add( p_fbb_tcp, from, "Sender: " .. from:string())
+	prop_subtree:add( p_fbb_tcp, rcpt_bbs, "Recipient's BBS: " .. rcpt_bbs:string())
+	prop_subtree:add( p_fbb_tcp, recipient, "Recipient: " .. recipient:string())
+	prop_subtree:add( p_fbb_tcp, bid_mid, "BID/MID: " .. bid_mid:string())
+	prop_subtree:add( p_fbb_tcp, size, "Size: " .. size:string() .. " byte(s)")
+
+	prop_subtree.text = prop_subtree.text .. ( " (id: " .. bid_mid:string() .. fif( proto_ver  == fbb_next_protocol.ASCII, ", U-Size: ", ", C-Size: ") .. size:string() .. ")")
+
+	-- Enqueue pending message metadata
+	local mq_id = fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next]["count"]
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next]["count"] = mq_id + 1
+
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id] = {}
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["type"] = mtype:string()
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["payload_type"] = "message"
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["mid"] = bid_mid:string()
+
+	if ( proto_ver  == fbb_next_protocol.ASCII ) then
+		fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["usize"] = tonumber(size:string()) -- Uncompressed size
+
+	else
+		fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["csize"] = tonumber(size:string()) -- Compressed size
+	end
+
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["_tsize"] = tonumber(size:string()) -- Real size to transfer
+	fbb_tcp_stream_infos[ stream_id ]["pending_msg"][fbb_seq_next][mq_id]["comp_type"] = fif( proto_ver == fbb_next_protocol.ASCII, "none", fif( proto_ver == fbb_next_protocol.BCP_v0, "lzhuf_lega", "lzhuf"))
+	return true
+end
+
 local function fbb_modern_proposal_dissector( frame, subtree, stream_id, fbb_seq_next )
 	local len = frame():len()
 	local buffer = frame(3,len-3)
@@ -705,8 +786,12 @@ local function fbb_proposal_dissector ( buffer, pinfo, subtree, stream_id, fnum_
 		
 		-- Decode Proposal
 		fbb_modern_proposal_dissector( buffer(), mdn_prop, stream_id, fbb_seq_next )
+
+	elseif( len > 5 and ( buffer(1,1):string() == 'A' or buffer(1,1):string() == 'B' ) ) then
+		return fbb_legacy_proposal_dissector( buffer(), subtree, stream_id, fbb_seq_next )
+
 	end
-	
+
 	return true
 end
 
@@ -967,7 +1052,10 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 					end
 
 					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1, prop_checksum)
-					fbb_subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "End of message proposals encountered, but didn't detect any proposal")
+
+					if ( first_mesg == nil ) then
+						fbb_subtree:add_expert_info( PI_PROTOCOL, PI_ERROR, "End of message proposals encountered, but didn't detect any proposal")
+					end
 
 				elseif ( proposal_code == "FA" or proposal_code == "FB" or proposal_code == "FC" or proposal_code == "FD" ) then
 					-- Pending Message Proposal
