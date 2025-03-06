@@ -919,43 +919,47 @@ function p_fbb_tcp.dissector ( buffer, pinfo, tree)
 					-- Basic Dissector
 					fbb_base_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, fbb_seq, fnum_id, is_s2c )	
 				end
-				
+
 			-- Commands mode
 			elseif ( fbb_pinfo[fnum_id]["cur_state"] == fbb_state.CMDS ) then 
-				local proposal_code = buffer(cur_line,3):string()
-				if ( proposal_code == "FS " ) then
+				local proposal_code = buffer(cur_line,2):string()
+				if ( proposal_code == "FS" ) then
 					local pending_xfers = 0
 					-- Message Transfer Query
 					pending_xfers = fbb_fetch_mesg_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq )
-		
+
 					-- Mark the next message for flow reversal
 					if ( pending_xfers ~= 0 ) then pending_xfer = true end
 
-				elseif ( proposal_code == "FA " or proposal_code == "FB " or proposal_code == "FC " or proposal_code == "FD " or buffer(cur_line,2):string() == "F>") then
-					-- Message Proposal
+				elseif ( proposal_code == "F>" ) then
+					-- 'F>': End of message proposals
 					local prop_checksum = nil
-					if ( proposal_code == "F> " and first_mesg ~= nil ) then
+
+					-- Compute checksum if the proposal is longer than 2 chars
+					if ( actual_len_line > 2 and first_mesg ~= nil ) then
 						prop_checksum = fbb_checksum( buffer(first_mesg, cur_line-first_mesg))
 					end
-					
+
 					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1, prop_checksum)
-					
-					if( buffer(cur_line,2):string() ~= "F>" ) then
-						if ( first_mesg == nil ) then first_mesg = cur_line end
-						pending_mesgs = pending_mesgs+1
-					end
-					
+
+				elseif ( proposal_code == "FA" or proposal_code == "FB" or proposal_code == "FC" or proposal_code == "FD" ) then
+					-- Pending Message Proposal
+					fbb_proposal_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c, fbb_seq+1)
+
+					if ( first_mesg == nil ) then first_mesg = cur_line end
+					pending_mesgs = pending_mesgs+1
+
 				elseif ( buffer(cur_line,1):uint() == 0x3B ) then
-					-- Special purpose comment, depending on the situation
+					-- ';' Special purpose comment, may hide some optional proposals
 					fbb_comment_dissector ( buffer(cur_line,actual_len_line), pinfo, fbb_subtree, stream_id, fnum_id, is_s2c )
-					
-				elseif( buffer(cur_line,2):string() == "FF" ) then
+
+				elseif( proposal_code == "FF" ) then
 					-- 'FF' Proposal: No Pending Message
 					local nopm_info = "No Pending Message"
 					fbb_subtree:add( p_fbb_tcp, buffer(cur_line,2), nopm_info)
 					set_or_concat_info ( pinfo, fnum_id, PI_CHAT, nopm_info, ", no pending mesg" )
 		
-				elseif( buffer(cur_line,2):string() == "FQ" ) then
+				elseif( proposal_code == "FQ" ) then
 					-- 'FQ' Proposal: Disconnection Request
 					local disc_info = "Disconnection Request"
 					fbb_subtree:add( p_fbb_tcp, buffer(cur_line,2), disc_info)
